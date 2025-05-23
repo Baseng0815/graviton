@@ -1,8 +1,9 @@
+use cgmath::{Point2, Vector2, Zero};
 use pipeline::Pipeline;
-use rendering::render_bodies;
-use wgpu::{MemoryHints, RenderPassDescriptor, util::DeviceExt};
+use rendering::RenderState;
+use simulation::Body;
+use wgpu::{Color, SurfaceError};
 use winit::{
-    dpi::PhysicalSize,
     event::{ElementState, Event, KeyEvent, WindowEvent},
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
@@ -30,7 +31,22 @@ pub async fn run() {
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut pipeline = Pipeline::new(&window).await;
-    let bodies = vec![];
+    let bodies = vec![
+        Body {
+            position: Point2::new(0.0, 0.0),
+            velocity: Vector2::zero(),
+            radius: 0.1,
+            color: Color::GREEN,
+        },
+        Body {
+            position: Point2::new(0.8, 0.2),
+            velocity: Vector2::zero(),
+            radius: 0.2,
+            color: Color::RED,
+        },
+    ];
+
+    let mut render_state = RenderState::new(&pipeline.device, bodies.len());
 
     log::info!(
         "Created window and event loop! Window inner size: {:?}",
@@ -69,16 +85,16 @@ pub async fn run() {
                         return;
                     }
 
-                    match render_bodies(&mut pipeline, &bodies) {
+                    match render_state.render_bodies(&mut pipeline, &bodies) {
                         Ok(_) => {}
-                        Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                        Err(SurfaceError::Lost | SurfaceError::Outdated) => {
                             pipeline.resize(pipeline.size);
                         }
-                        Err(wgpu::SurfaceError::OutOfMemory | wgpu::SurfaceError::Other) => {
+                        Err(SurfaceError::OutOfMemory | SurfaceError::Other) => {
                             log::error!("Surface out of memory");
                             control_flow.exit();
                         }
-                        Err(wgpu::SurfaceError::Timeout) => {
+                        Err(SurfaceError::Timeout) => {
                             log::warn!("Surface timeout")
                         }
                     }

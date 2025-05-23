@@ -1,6 +1,6 @@
 pub struct Body {
-    position: cgmath::Point3<f32>,
-    velocity: cgmath::Vector3<f32>,
-    radius: f32,
-    color: [f32; 3],
+    pub position: cgmath::Point2<f32>,
+    pub velocity: cgmath::Vector2<f32>,
+    pub radius: f32,
+    pub color: wgpu::Color,
 }

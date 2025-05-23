@@ -1,4 +1,3 @@
-use wgpu::{util::DeviceExt, CommandEncoder, MemoryHints, RenderPass, RenderPassDescriptor, TextureView};
 use winit::{
     dpi::PhysicalSize,
     event::{Event, KeyEvent, WindowEvent},
@@ -10,7 +9,7 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use crate::rendering::Vertex;
+use crate::rendering::{BodyInstance, Vertex};
 
 pub struct Pipeline<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -55,7 +54,7 @@ impl<'a> Pipeline<'a> {
                 } else {
                     wgpu::Limits::default()
                 },
-                memory_hints: MemoryHints::Performance,
+                memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,
             })
             .await
@@ -97,7 +96,7 @@ impl<'a> Pipeline<'a> {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::layout()],
+                buffers: &[Vertex::layout(), BodyInstance::layout()],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -149,14 +148,14 @@ impl<'a> Pipeline<'a> {
         }
     }
 
-    pub fn start_encoder(&self) -> CommandEncoder {
+    pub fn start_encoder(&self) -> wgpu::CommandEncoder {
         self.device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             })
     }
 
-    pub fn finish_encoder(&self, encoder: CommandEncoder) {
+    pub fn finish_encoder(&self, encoder: wgpu::CommandEncoder) {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
 }
