@@ -150,9 +150,9 @@ impl RenderState {
                 resolve_target: None,
                 ops: Operations {
                     load: LoadOp::Clear(Color {
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
+                        r: 0.001,
+                        g: 0.001,
+                        b: 0.002,
                         a: 1.0,
                     }),
                     store: StoreOp::Store,
@@ -168,7 +168,7 @@ impl RenderState {
         // update instance buffer
         for (instance, body) in self.instances.iter_mut().zip(bodies.iter()) {
             *instance = BodyInstance {
-                position: [body.position.x, body.position.y],
+                position: [body.position.x - 0.5, body.position.y - 0.5],
                 color: [
                     body.color.r as f32,
                     body.color.g as f32,

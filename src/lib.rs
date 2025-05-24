@@ -1,7 +1,9 @@
 use cgmath::{Point2, Vector2, Zero};
 use pipeline::Pipeline;
+use rand::{distr::{Distribution, Uniform}, rng};
+use rand_distr::Normal;
 use rendering::RenderState;
-use simulation::Body;
+use simulation::{Body, Simulation};
 use wgpu::{Color, SurfaceError};
 use winit::{
     event::{ElementState, Event, KeyEvent, WindowEvent},
@@ -28,25 +30,27 @@ pub async fn run() {
         }
     }
 
+    let num_bodies = 100000;
+
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut pipeline = Pipeline::new(&window).await;
-    let bodies = vec![
-        Body {
-            position: Point2::new(0.0, 0.0),
-            velocity: Vector2::zero(),
-            radius: 0.1,
-            color: Color::GREEN,
-        },
-        Body {
-            position: Point2::new(0.8, 0.2),
-            velocity: Vector2::zero(),
-            radius: 0.2,
-            color: Color::RED,
-        },
-    ];
+    let mut simulation = Simulation::new(num_bodies, std::iter::repeat_with(|| {
+        // let pos_dist = Uniform::new(-0.5, 0.5).unwrap();
+        let pos_dist = Normal::new(0.5, 0.5).unwrap();
 
-    let mut render_state = RenderState::new(&pipeline.device, bodies.len());
+        let pos_x: f32 = pos_dist.sample(&mut rng());
+        let pos_y: f32 = pos_dist.sample(&mut rng());
+
+        Body {
+            position: Point2::new(pos_x, pos_y),
+            velocity: Vector2::zero(),
+            radius: 0.005,
+            color: Color::BLUE,
+        }
+    }));
+
+    let mut render_state = RenderState::new(&pipeline.device, num_bodies);
 
     log::info!(
         "Created window and event loop! Window inner size: {:?}",
@@ -85,7 +89,7 @@ pub async fn run() {
                         return;
                     }
 
-                    match render_state.render_bodies(&mut pipeline, &bodies) {
+                    match render_state.render_bodies(&mut pipeline, &simulation.bodies) {
                         Ok(_) => {}
                         Err(SurfaceError::Lost | SurfaceError::Outdated) => {
                             pipeline.resize(pipeline.size);
