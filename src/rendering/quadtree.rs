@@ -1,0 +1,33 @@
+use cgmath::{
+    Point2,
+    Vector2,
+};
+use wgpu::Color;
+
+use crate::simulation::Body;
+use crate::simulation::quadtree::Quadtree;
+
+use super::generic::{
+    GenericVertex,
+    Mesh,
+    push_line,
+};
+
+pub(super) fn generate_quadtree_mesh(quadtree: &Quadtree<Body, f32>) -> Mesh {
+    let mut quadtree_mesh = Mesh::default();
+
+    quadtree.traverse(&mut |node, node_position, depth| {
+        let extent = quadtree.extent() * 0.5f32.powi(depth.try_into().unwrap());
+        let p0 = node_position + Vector2::new(-extent, extent);
+        let p1 = node_position + Vector2::new(-extent, -extent);
+        let p2 = node_position + Vector2::new(extent, extent);
+        let p3 = node_position + Vector2::new(extent, -extent);
+
+        push_line(&mut quadtree_mesh, p0, p1, 0.003, Color::GREEN);
+        push_line(&mut quadtree_mesh, p1, p3, 0.003, Color::GREEN);
+        push_line(&mut quadtree_mesh, p3, p2, 0.003, Color::GREEN);
+        push_line(&mut quadtree_mesh, p2, p0, 0.003, Color::GREEN);
+    }).unwrap();
+
+    quadtree_mesh
+}

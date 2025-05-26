@@ -1,141 +1,64 @@
+use bodies::BodyBuffers;
 use bytemuck::Zeroable;
+use cgmath::Point2;
 use cgmath::prelude::*;
+use generic::push_line;
+use generic::Mesh;
+use quadtree::generate_quadtree_mesh;
+use wgpu::util::{
+    self,
+    BufferInitDescriptor,
+    DeviceExt,
+};
 use wgpu::{
-    Buffer, BufferAddress, BufferDescriptor, BufferUsages, Color, Device, IndexFormat, LoadOp,
-    Operations, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, SurfaceError,
-    TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode,
-    util::{self, BufferInitDescriptor, DeviceExt},
+    Buffer,
+    BufferAddress,
+    BufferDescriptor,
+    BufferUsages,
+    Color,
+    Device,
+    IndexFormat,
+    LoadOp,
+    Operations,
+    RenderPassColorAttachment,
+    RenderPassDescriptor,
+    StoreOp,
+    SurfaceError,
+    TextureViewDescriptor,
+    VertexAttribute,
+    VertexBufferLayout,
+    VertexFormat,
+    VertexStepMode,
 };
 
-use crate::{pipeline::Pipeline, simulation::Body};
+use crate::pipeline::Pipeline;
+use crate::simulation::Body;
+use crate::simulation::quadtree::Quadtree;
 
-const QUAD_VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-0.5, 0.5],
-    },
-    Vertex {
-        position: [-0.5, -0.5],
-    },
-    Vertex {
-        position: [0.5, -0.5],
-    },
-    Vertex {
-        position: [0.5, 0.5],
-    },
-];
-
-const QUAD_INDICES: &[u16] = &[0, 1, 3, 1, 2, 3];
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
-    position: [f32; 2],
-}
-
-impl Vertex {
-    pub fn layout() -> VertexBufferLayout<'static> {
-        VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as u64,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &[VertexAttribute {
-                offset: 0,
-                shader_location: 0,
-                format: VertexFormat::Float32x2,
-            }],
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct BodyInstance {
-    position: [f32; 2],
-    color: [f32; 4],
-    radius: f32,
-}
-
-impl BodyInstance {
-    pub fn layout() -> VertexBufferLayout<'static> {
-        VertexBufferLayout {
-            array_stride: std::mem::size_of::<BodyInstance>() as u64,
-            step_mode: VertexStepMode::Instance,
-            attributes: &[
-                VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: VertexFormat::Float32x2,
-                },
-                VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 2]>() as u64,
-                    shader_location: 2,
-                    format: VertexFormat::Float32x4,
-                },
-                VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as u64,
-                    shader_location: 3,
-                    format: VertexFormat::Float32,
-                },
-            ],
-        }
-    }
-}
+pub mod bodies;
+pub mod generic;
+mod quadtree;
 
 pub struct RenderState {
-    vertex_buffer: Buffer,
-    index_buffer: Buffer,
-    num_indices: u32,
-    instance_buffer: Buffer,
-    // must be the same for every render call
-    num_instances: u32,
-    instances: Vec<BodyInstance>,
+    body_buffers: BodyBuffers,
 }
 
 impl RenderState {
-    pub fn new(device: &Device, num_instances: usize) -> Self {
-        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(QUAD_VERTICES),
-            usage: BufferUsages::VERTEX,
-        });
+    pub fn new(
+        device: &Device,
+        num_instances: usize,
+    ) -> Self {
+        let body_buffers = BodyBuffers::new(device, num_instances);
 
-        let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Index Buffer"),
-            contents: bytemuck::cast_slice(QUAD_INDICES),
-            usage: BufferUsages::INDEX,
-        });
-
-        let num_indices = QUAD_INDICES.len() as u32;
-
-        let instance_buffer = device.create_buffer(&BufferDescriptor {
-            label: Some("Instance Buffer"),
-            size: BufferAddress::try_from(num_instances * std::mem::size_of::<BodyInstance>())
-                .unwrap(),
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let instances = vec![BodyInstance::zeroed(); num_instances];
-
-        Self {
-            vertex_buffer,
-            index_buffer,
-            num_indices,
-            instance_buffer,
-            num_instances: u32::try_from(num_instances).unwrap(),
-            instances,
-        }
+        Self { body_buffers }
     }
 
-    pub fn render_bodies(
+    pub fn render(
         &mut self,
         pipeline: &mut Pipeline,
-        bodies: &Vec<Body>,
+        bodies: &[Body],
+        quadtree: &Quadtree<Body, f32>,
     ) -> Result<(), SurfaceError> {
-        assert!(
-            bodies.len() == self.num_instances as usize,
-            "Number of bodies must not change across rendering calls"
-        );
-
         let output = pipeline.surface.get_current_texture()?;
         let view = output
             .texture
@@ -163,39 +86,13 @@ impl RenderState {
             occlusion_query_set: None,
         });
 
-        render_pass.set_pipeline(&pipeline.render_pipeline);
+        self.render_bodies(pipeline, &mut render_pass, bodies)?;
 
-        // update instance buffer
-        for (instance, body) in self.instances.iter_mut().zip(bodies.iter()) {
-            *instance = BodyInstance {
-                position: [body.position.x - 0.5, body.position.y - 0.5],
-                color: [
-                    body.color.r as f32,
-                    body.color.g as f32,
-                    body.color.b as f32,
-                    body.color.a as f32,
-                ],
-                radius: body.radius,
-            }
-        }
+        let quadtree_mesh = generate_quadtree_mesh(quadtree);
+        self.render_generic(pipeline, &mut render_pass, &quadtree_mesh.vertices, &quadtree_mesh.indices)?;
 
-        pipeline.queue.write_buffer(
-            &self.instance_buffer,
-            0,
-            bytemuck::cast_slice(&self.instances),
-        );
-
-        // set all buffers
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-        render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
-
-        // draw calls
-        render_pass.draw_indexed(0..self.num_indices, 0, 0..self.num_instances);
-
-        // finish
         drop(render_pass);
-        pipeline.finish_encoder(encoder);
+        pipeline.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
         Ok(())

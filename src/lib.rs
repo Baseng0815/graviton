@@ -1,15 +1,43 @@
-use cgmath::{Point2, Vector2, Zero};
+use cgmath::{
+    Point2,
+    Vector2,
+    Zero,
+};
 use pipeline::Pipeline;
-use rand::{distr::{Distribution, Uniform}, rng};
+use rand::distr::{
+    Distribution,
+    Uniform,
+};
+use rand::rng;
 use rand_distr::Normal;
 use rendering::RenderState;
-use simulation::{Body, Simulation};
-use wgpu::{Color, SurfaceError};
-use winit::{
-    event::{ElementState, Event, KeyEvent, WindowEvent},
-    event_loop::EventLoop,
-    keyboard::{KeyCode, PhysicalKey},
-    window::{Window, WindowBuilder},
+use simulation::quadtree::Quadtree;
+use simulation::{
+    Body,
+    Simulation,
+};
+use wgpu::{
+    Color,
+    SurfaceError,
+};
+use winit::dpi::{
+    PhysicalSize,
+    Size,
+};
+use winit::event::{
+    ElementState,
+    Event,
+    KeyEvent,
+    WindowEvent,
+};
+use winit::event_loop::EventLoop;
+use winit::keyboard::{
+    KeyCode,
+    PhysicalKey,
+};
+use winit::window::{
+    Window,
+    WindowBuilder,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -30,32 +58,37 @@ pub async fn run() {
         }
     }
 
-    let num_bodies = 100000;
+    let num_bodies = 1000;
 
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut pipeline = Pipeline::new(&window).await;
-    let mut simulation = Simulation::new(num_bodies, std::iter::repeat_with(|| {
-        // let pos_dist = Uniform::new(-0.5, 0.5).unwrap();
-        let pos_dist = Normal::new(0.5, 0.5).unwrap();
+    let mut simulation = Simulation::new(
+        num_bodies,
+        std::iter::repeat_with(|| {
+            // let pos_dist = Uniform::new(-0.5, 0.5).unwrap();
+            let pos_dist = Normal::new(0.0, 0.5).unwrap();
 
-        let pos_x: f32 = pos_dist.sample(&mut rng());
-        let pos_y: f32 = pos_dist.sample(&mut rng());
+            let pos_x: f32 = pos_dist.sample(&mut rng());
+            let pos_y: f32 = pos_dist.sample(&mut rng());
 
-        Body {
-            position: Point2::new(pos_x, pos_y),
-            velocity: Vector2::zero(),
-            radius: 0.005,
-            color: Color::BLUE,
-        }
-    }));
+            Body {
+                position: Point2::new(pos_x, pos_y),
+                velocity: Vector2::zero(),
+                radius: 0.005,
+                color: Color::BLUE,
+            }
+        }),
+    );
+
+    let mut quadtree = Quadtree::<Body, f32>::new(4.0);
+    for body in simulation.bodies.iter() {
+        quadtree.insert(body.clone()).unwrap();
+    }
 
     let mut render_state = RenderState::new(&pipeline.device, num_bodies);
 
-    log::info!(
-        "Created window and event loop! Window inner size: {:?}",
-        window.inner_size()
-    );
+    log::info!("Created window and event loop! Window inner size: {:?}", window.inner_size());
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -78,10 +111,7 @@ pub async fn run() {
 
     event_loop
         .run(move |event, control_flow| match event {
-            Event::WindowEvent {
-                window_id,
-                ref event,
-            } if window_id == pipeline.window.id() => match event {
+            Event::WindowEvent { window_id, ref event } if window_id == pipeline.window.id() => match event {
                 WindowEvent::RedrawRequested => {
                     pipeline.window.request_redraw();
 
@@ -89,7 +119,7 @@ pub async fn run() {
                         return;
                     }
 
-                    match render_state.render_bodies(&mut pipeline, &simulation.bodies) {
+                    match render_state.render(&mut pipeline, &simulation.bodies, &quadtree) {
                         Ok(_) => {}
                         Err(SurfaceError::Lost | SurfaceError::Outdated) => {
                             pipeline.resize(pipeline.size);

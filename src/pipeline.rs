@@ -1,3 +1,4 @@
+use wgpu::{Device, RenderPipeline, SurfaceConfiguration};
 use winit::{
     dpi::PhysicalSize,
     event::{Event, KeyEvent, WindowEvent},
@@ -9,7 +10,7 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use crate::rendering::{BodyInstance, Vertex};
+use crate::rendering::{bodies::{BodyInstance, CircleVertex}, generic::GenericVertex};
 
 pub struct Pipeline<'a> {
     pub surface: wgpu::Surface<'a>,
@@ -18,7 +19,8 @@ pub struct Pipeline<'a> {
     pub config: wgpu::SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
     pub window: &'a Window,
-    pub render_pipeline: wgpu::RenderPipeline,
+    pub circle_pipeline: wgpu::RenderPipeline,
+    pub generic_pipeline: wgpu::RenderPipeline,
 }
 
 impl<'a> Pipeline<'a> {
@@ -78,55 +80,8 @@ impl<'a> Pipeline<'a> {
             view_formats: vec![],
         };
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges: &[],
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::layout(), BodyInstance::layout()],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
+        let circle_pipeline = create_circle_pipeline(&config, &device);
+        let generic_pipeline = create_generic_pipeline(&config, &device);
 
         Self {
             surface,
@@ -135,7 +90,8 @@ impl<'a> Pipeline<'a> {
             config,
             size,
             window,
-            render_pipeline,
+            circle_pipeline,
+            generic_pipeline,
         }
     }
 
@@ -158,4 +114,110 @@ impl<'a> Pipeline<'a> {
     pub fn finish_encoder(&self, encoder: wgpu::CommandEncoder) {
         self.queue.submit(std::iter::once(encoder.finish()));
     }
+}
+
+fn create_circle_pipeline(config: &SurfaceConfiguration, device: &Device) -> RenderPipeline {
+    let circle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Circle Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("circle_shader.wgsl").into()),
+    });
+
+    let circle_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Circle Render Pipeline Layout"),
+        bind_group_layouts: &[],
+        push_constant_ranges: &[],
+    });
+
+    let circle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Render Pipeline"),
+        layout: Some(&circle_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &circle_shader,
+            entry_point: Some("vs_main"),
+            buffers: &[CircleVertex::layout(), BodyInstance::layout()],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &circle_shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    });
+
+    circle_pipeline
+}
+
+fn create_generic_pipeline(config: &SurfaceConfiguration, device: &Device) -> RenderPipeline {
+    let generic_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Generic Shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("generic_shader.wgsl").into()),
+    });
+
+    let generic_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Generic Render Pipeline Layout"),
+        bind_group_layouts: &[],
+        push_constant_ranges: &[],
+    });
+
+    let generic_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Generic Render Pipeline"),
+        layout: Some(&generic_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &generic_shader,
+            entry_point: Some("vs_main"),
+            buffers: &[GenericVertex::layout()],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &generic_shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+        cache: None,
+    });
+
+    generic_pipeline
 }

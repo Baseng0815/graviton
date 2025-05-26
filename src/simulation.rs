@@ -1,13 +1,23 @@
+use std::num::NonZeroU8;
+
+pub mod quadtree;
+
 use cgmath::{Point2, Vector2};
+use quadtree::Positioned;
 use wgpu::Color;
 
+#[derive(Debug, Clone)]
 pub struct Body {
-    // the bottom-left corner of the simulation coordinate system is (0, 0) and the extend of the axes is
-    // [0, 1]
     pub position: Point2<f32>,
     pub velocity: Vector2<f32>,
     pub radius: f32,
     pub color: Color,
+}
+
+impl Positioned for Body {
+    fn position(&self) -> Point2<f32> {
+        self.position
+    }
 }
 
 pub struct Simulation {
