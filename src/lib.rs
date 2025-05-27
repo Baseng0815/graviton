@@ -75,16 +75,15 @@ pub async fn run() {
             Body {
                 position: Point2::new(pos_x, pos_y),
                 velocity: Vector2::zero(),
+                mass: 1.0,
                 radius: 0.005,
                 color: Color::BLUE,
             }
         }),
+        0.5,
     );
 
-    let mut quadtree = Quadtree::<Body, f32>::new(4.0);
-    for body in simulation.bodies.iter() {
-        quadtree.insert(body.clone()).unwrap();
-    }
+    simulation.advance(1.0).unwrap();
 
     let mut render_state = RenderState::new(&pipeline.device, num_bodies);
 
@@ -119,7 +118,7 @@ pub async fn run() {
                         return;
                     }
 
-                    match render_state.render(&mut pipeline, &simulation.bodies, &quadtree) {
+                    match render_state.render(&mut pipeline, &simulation) {
                         Ok(_) => {}
                         Err(SurfaceError::Lost | SurfaceError::Outdated) => {
                             pipeline.resize(pipeline.size);

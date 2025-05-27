@@ -34,6 +34,7 @@ use wgpu::{
 use crate::pipeline::Pipeline;
 use crate::simulation::Body;
 use crate::simulation::quadtree::Quadtree;
+use crate::simulation::Simulation;
 
 pub mod bodies;
 pub mod generic;
@@ -56,8 +57,7 @@ impl RenderState {
     pub fn render(
         &mut self,
         pipeline: &mut Pipeline,
-        bodies: &[Body],
-        quadtree: &Quadtree<Body, f32>,
+        simulation: &Simulation,
     ) -> Result<(), SurfaceError> {
         let output = pipeline.surface.get_current_texture()?;
         let view = output
@@ -86,9 +86,9 @@ impl RenderState {
             occlusion_query_set: None,
         });
 
-        self.render_bodies(pipeline, &mut render_pass, bodies)?;
+        self.render_bodies(pipeline, &mut render_pass, simulation.bodies())?;
 
-        let quadtree_mesh = generate_quadtree_mesh(quadtree);
+        let quadtree_mesh = generate_quadtree_mesh(simulation.quadtree());
         self.render_generic(pipeline, &mut render_pass, &quadtree_mesh.vertices, &quadtree_mesh.indices)?;
 
         drop(render_pass);

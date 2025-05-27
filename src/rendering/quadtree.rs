@@ -1,10 +1,12 @@
+use std::fmt::Debug;
+
 use cgmath::{
     Point2,
     Vector2,
 };
 use wgpu::Color;
 
-use crate::simulation::Body;
+use crate::simulation::{quadtree::Positioned, Body};
 use crate::simulation::quadtree::Quadtree;
 
 use super::generic::{
@@ -13,7 +15,10 @@ use super::generic::{
     push_line,
 };
 
-pub(super) fn generate_quadtree_mesh(quadtree: &Quadtree<Body, f32>) -> Mesh {
+pub(super) fn generate_quadtree_mesh<T, U>(quadtree: &Quadtree<T, U>) -> Mesh
+where T: Positioned + Debug,
+      U: Default + Debug + Copy + Clone
+{
     let mut quadtree_mesh = Mesh::default();
 
     quadtree.traverse(&mut |node, node_position, depth| {
