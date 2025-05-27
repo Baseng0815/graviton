@@ -20,6 +20,12 @@ pub trait Positioned {
     fn position(&self) -> Point2<SimFloat>;
 }
 
+#[derive(Debug)]
+pub enum ContinueTraverse {
+    Continue,
+    Stop,
+}
+
 #[repr(usize)]
 enum Quadrant {
     NW = 0,
@@ -66,27 +72,27 @@ impl Quadrant {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub enum QuadtreeChild {
+pub(super) enum QuadtreeChild {
     Node(NonZeroU32),
     Element(NonZeroU32),
 }
 
 #[derive(Debug, Copy, Clone)]
-pub struct QuadtreeNode<U>
+pub(super) struct QuadtreeNode<U>
 where
     U: Default + Debug + Copy + Clone,
 {
-    child_index: QuadtreeChild,
-    parent_index: NonZeroU32,
-    data: U,
+    pub(super) child_index: QuadtreeChild,
+    pub(super) parent_index: NonZeroU32,
+    pub(super) data: U,
 }
 
 #[derive(Debug)]
-struct QuadtreeElement<T>
+pub(super) struct QuadtreeElement<T>
 where
     T: Positioned + Debug,
 {
-    element: T,
+    pub(super) element: T,
     leaf_index: Option<NonZeroU32>,
 }
 
@@ -142,6 +148,10 @@ where
         &self.nodes
     }
 
+    pub fn nodes_mut(&mut self) -> &mut [Option<QuadtreeNode<U>>] {
+        &mut self.nodes
+    }
+
     pub fn extent(&self) -> SimFloat {
         self.extent
     }
@@ -166,7 +176,7 @@ where
         func: &mut F,
     ) -> Result<(), String>
     where
-        F: FnMut(&QuadtreeNode<U>, Point2<SimFloat>, u32) -> (),
+        F: FnMut(&QuadtreeNode<U>, Point2<SimFloat>, u32) -> ContinueTraverse,
     {
         self.traverse_at_node(func, 0, Point2::new(0.0, 0.0), 0)
     }
@@ -179,14 +189,17 @@ where
         depth: u32,
     ) -> Result<(), String>
     where
-        F: FnMut(&QuadtreeNode<U>, Point2<SimFloat>, u32) -> (),
+        F: FnMut(&QuadtreeNode<U>, Point2<SimFloat>, u32) -> ContinueTraverse,
     {
         if depth > MAX_DEPTH {
             Err(format!("Maximum stack depth exceeded while traversing over node {:?}", self.nodes[node_index]))?;
         }
 
         if let Some(node) = &self.nodes[node_index] {
-            func(node, node_position, depth);
+            match func(node, node_position, depth) {
+                ContinueTraverse::Continue => {}
+                ContinueTraverse::Stop => return Ok(()),
+            };
 
             if let QuadtreeChild::Node(child_node_index) = node.child_index {
                 let children_index = usize::try_from(child_node_index.get() - 1).unwrap();
@@ -269,13 +282,7 @@ where
 
                         self.nodes[node_index] = Some(updated_node);
 
-                        self.insert_at_node(
-                            node_index,
-                            parent_index,
-                            node_position,
-                            depth,
-                            element_index,
-                        )?;
+                        self.insert_at_node(node_index, parent_index, node_position, depth, element_index)?;
                         self.insert_at_node(
                             node_index,
                             parent_index,

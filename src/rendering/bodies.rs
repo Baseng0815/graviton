@@ -3,7 +3,7 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt}, Buffer, BufferAddress, BufferDescriptor, BufferUsages, Color, CommandEncoder, Device, IndexFormat, LoadOp, Operations, RenderPass, RenderPassColorAttachment, RenderPassDescriptor, StoreOp, SurfaceError, TextureViewDescriptor, VertexAttribute, VertexBufferLayout, VertexFormat, VertexStepMode
 };
 
-use crate::{pipeline::Pipeline, simulation::Body};
+use crate::{pipeline::Pipeline, simulation::{quadtree::Positioned, Body}};
 
 use super::RenderState;
 
@@ -143,14 +143,14 @@ impl RenderState {
 
         for (instance, body) in bufs.instances.iter_mut().zip(bodies.iter()) {
             *instance = BodyInstance {
-                position: [body.position.x, body.position.y],
+                position: [body.position().x, body.position().y],
                 color: [
-                    body.color.r as f32,
-                    body.color.g as f32,
-                    body.color.b as f32,
-                    body.color.a as f32,
+                    body.color().r as f32,
+                    body.color().g as f32,
+                    body.color().b as f32,
+                    body.color().a as f32,
                 ],
-                radius: body.radius,
+                radius: body.radius(),
             }
         }
 
