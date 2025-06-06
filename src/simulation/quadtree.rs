@@ -78,13 +78,13 @@ pub(super) enum QuadtreeChild {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub(super) struct QuadtreeNode<U>
+pub struct QuadtreeNode<U>
 where
     U: Default + Debug + Copy + Clone,
 {
-    pub(super) child_index: QuadtreeChild,
-    pub(super) parent_index: NonZeroU32,
-    pub(super) data: U,
+    pub child_index: QuadtreeChild,
+    pub parent_index: NonZeroU32,
+    pub data: U,
 }
 
 #[derive(Debug)]

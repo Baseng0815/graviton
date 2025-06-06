@@ -18,11 +18,11 @@ use wgpu::Color;
 
 #[derive(Debug, Clone)]
 pub struct Body {
-    position: Point2<SimFloat>,
-    velocity: Vector2<SimFloat>,
-    mass: SimFloat,
-    radius: SimFloat,
-    color: Color,
+    pub position: Point2<SimFloat>,
+    pub velocity: Vector2<SimFloat>,
+    pub mass: SimFloat,
+    pub radius: SimFloat,
+    pub color: Color,
 }
 
 impl Body {
@@ -123,7 +123,7 @@ impl Simulation {
         let mut forces: Vec<Vector2<SimFloat>> = Vec::with_capacity(self.bodies.len());
         for body in self.bodies.iter() {
             // start at root and resolve children until we are below the threshold
-            self.quadtree.traverse_mut(&mut || {});
+            // self.quadtree.traverse_mut(&mut || {});
         }
 
         // 3. apply force to body
@@ -153,11 +153,11 @@ impl Simulation {
                     let children_index = usize::try_from(children_index.get() - 1).unwrap();
                     for child_index in 0..4 {
                         self.calculate_pseudobody_from_node(children_index + child_index);
-                        let child_data = self.quadtree.nodes()[children_index + child_index]
-                            .unwrap()
-                            .data;
-                        child_mass_sum += child_data.mass;
-                        child_position_sum += child_data.position.to_vec();
+                        if let Some(child_node) = self.quadtree.nodes()[children_index + child_index] {
+                            let child_data = child_node.data;
+                            child_mass_sum += child_data.mass;
+                            child_position_sum += child_data.position.to_vec();
+                        }
                     }
 
                     child_mass_sum *= 0.25;

@@ -7,7 +7,7 @@ use cgmath::{
 use wgpu::Color;
 
 use crate::simulation::{quadtree::Positioned, Body};
-use crate::simulation::quadtree::Quadtree;
+use crate::simulation::quadtree::{ContinueTraverse, Quadtree};
 
 use super::generic::{
     GenericVertex,
@@ -32,6 +32,8 @@ where T: Positioned + Debug,
         push_line(&mut quadtree_mesh, p1, p3, 0.003, Color::GREEN);
         push_line(&mut quadtree_mesh, p3, p2, 0.003, Color::GREEN);
         push_line(&mut quadtree_mesh, p2, p0, 0.003, Color::GREEN);
+
+        ContinueTraverse::Continue
     }).unwrap();
 
     quadtree_mesh
