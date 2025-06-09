@@ -1,4 +1,8 @@
 use std::num::NonZeroU8;
+use std::time::{
+    Duration,
+    Instant,
+};
 
 pub mod quadtree;
 
@@ -15,6 +19,9 @@ use quadtree::{
     QuadtreeChild,
 };
 use wgpu::Color;
+
+use crate::new_map_key;
+use crate::utility::index_map::{MapKey, PrimaryMap};
 
 #[derive(Debug, Clone)]
 pub struct Body {
@@ -75,15 +82,23 @@ impl Default for Pseudobody {
     }
 }
 
-impl Positioned for Body {
+#[derive(Debug)]
+pub struct QuadtreeBody {
+    position: Point2<SimFloat>,
+    body_key: BodyKey,
+}
+
+impl Positioned for QuadtreeBody {
     fn position(&self) -> Point2<SimFloat> {
         self.position
     }
 }
 
+new_map_key! { pub struct BodyKey; "BODY"; }
+
 pub struct Simulation {
-    bodies: Vec<Body>,
-    quadtree: Quadtree<Body, Pseudobody>,
+    bodies: PrimaryMap<BodyKey, Body>,
+    quadtree: Quadtree<QuadtreeBody, Pseudobody>,
 
     // if the size of a pseudoparticle (s) divided by its distance (d) is below
     // this threshold, the pseudoparticle's mass is used and its children are ignored
@@ -92,89 +107,82 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new<T>(
-        num_bodies: usize,
-        body_init: T,
+        bodies: T,
         pseudobody_threshold: SimFloat,
     ) -> Self
     where
-        T: Iterator<Item = Body>,
+        T: ExactSizeIterator<Item = Body>,
     {
-        Self {
-            bodies: Vec::from_iter(body_init.take(num_bodies)),
-            quadtree: Quadtree::new(2.0),
+        let mut slf = Self {
+            bodies: PrimaryMap::with_capacity(bodies.len()),
+            quadtree: Quadtree::new(10000.0),
             pseudobody_threshold,
+        };
+
+        for body in bodies {
+            slf.bodies.insert(body);
         }
+
+        slf
     }
 
     pub fn advance(
         &mut self,
-        dt: SimFloat,
+        dt: Duration,
     ) -> Result<(), String> {
-        // 1. rebuild quadtree
-        self.quadtree.clear();
-        for body in self.bodies.iter() {
-            self.quadtree.insert(body.clone())?;
+        log::trace!("Updating simulation with dt={:?}", dt);
+
+        // 0. apply old velocity
+        for body in self.bodies.values_mut() {
+            body.position += body.velocity * dt.as_millis() as SimFloat;
         }
+
+        // 1. rebuild quadtree
+        let start = Instant::now();
+
+        self.quadtree.clear();
+        for (body_key, body) in self.bodies.items() {
+            self.quadtree.insert(QuadtreeBody { position: body.position, body_key })?;
+        }
+
+        let duration = Instant::now() - start;
+        log::trace!("Built quadtree with {} nodes in {:?}", self.quadtree.nodes().len(), duration);
 
         // 2. calculate pseudobodies
-        self.calculate_pseudobody_from_node(0);
+        let start = Instant::now();
 
-        // 3. calculate forces for every body
-        let mut forces: Vec<Vector2<SimFloat>> = Vec::with_capacity(self.bodies.len());
-        for body in self.bodies.iter() {
-            // start at root and resolve children until we are below the threshold
-            // self.quadtree.traverse_mut(&mut || {});
-        }
+
+        let duration = Instant::now() - start;
+        log::trace!("Calculated pseudobodies in {:?}", duration);
+
+        // 3. calculate forces for every body and update velocities
+        let start = Instant::now();
+
+
+
+        let duration = Instant::now() - start;
+        log::trace!("Calculated forces in {:?}", duration);
 
         // 3. apply force to body
 
         Ok(())
     }
 
-    pub fn bodies(&self) -> &[Body] {
-        &self.bodies
+    pub fn bodies(&self) -> impl ExactSizeIterator<Item = &Body> {
+        self.bodies.values()
     }
 
-    pub fn quadtree(&self) -> &Quadtree<Body, Pseudobody> {
+    pub fn quadtree(&self) -> &Quadtree<QuadtreeBody, Pseudobody> {
         &self.quadtree
     }
 
-    fn calculate_pseudobody_from_node(
-        &mut self,
-        node_index: usize,
-    ) {
-        let node = self.quadtree.nodes()[node_index].as_ref();
-        if let Some(node) = node {
-            match node.child_index {
-                QuadtreeChild::Node(children_index) => {
-                    let mut child_mass_sum = 0.0;
-                    let mut child_position_sum = Point2::new(0.0, 0.0);
+    fn calculate_body_force(
+        &self,
+        body: &Body,
+    ) -> Vector2<SimFloat> {
 
-                    let children_index = usize::try_from(children_index.get() - 1).unwrap();
-                    for child_index in 0..4 {
-                        self.calculate_pseudobody_from_node(children_index + child_index);
-                        if let Some(child_node) = self.quadtree.nodes()[children_index + child_index] {
-                            let child_data = child_node.data;
-                            child_mass_sum += child_data.mass;
-                            child_position_sum += child_data.position.to_vec();
-                        }
-                    }
-
-                    child_mass_sum *= 0.25;
-                    child_position_sum *= 0.25;
-
-                    self.quadtree.nodes_mut()[node_index].as_mut().unwrap().data =
-                        Pseudobody::new(child_position_sum, child_mass_sum);
-                }
-                QuadtreeChild::Element(element_index) => {
-                    let element_index = usize::try_from(element_index.get() - 1).unwrap();
-                    let element_position = self.quadtree.elements()[element_index].element.position();
-                    let element_mass = self.quadtree.elements()[element_index].element.mass;
-
-                    self.quadtree.nodes_mut()[node_index].as_mut().unwrap().data =
-                        Pseudobody::new(element_position, element_mass);
-                }
-            }
-        }
+        // start at root and resolve children until we are below the threshold
+        // let
+        todo!()
     }
 }

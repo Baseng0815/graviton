@@ -12,6 +12,10 @@ use cgmath::{
     Vector2,
 };
 
+use crate::{new_map_key, new_map_key_16, new_map_key_32};
+use crate::utility::index_map::PrimaryMap;
+use crate::utility::index_map::MapKey;
+
 use super::SimFloat;
 
 const MAX_DEPTH: u32 = 64;
@@ -27,54 +31,75 @@ pub enum ContinueTraverse {
 }
 
 #[repr(usize)]
+#[derive(Eq, PartialEq, Clone, Copy)]
 enum Quadrant {
-    NW = 0,
-    SW = 1,
-    NE = 2,
-    SE = 3,
+    NE = 0b00,
+    NW = 0b01,
+    SE = 0b10,
+    SW = 0b11,
+}
+
+/* NW (0b01) | NE (0b00)
+ * ----------+----------
+ * SW (0b11) | SE (0b10)
+ */
+
+impl TryFrom<u32> for Quadrant {
+    type Error = ();
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0b00 => {
+                Self::NE
+            },
+            0b01 => {
+                Self::NW
+            },
+            0b10 => {
+                Self::SE
+            },
+            0b11 => {
+                Self::SW
+            }
+            _ => Err(())?
+        })
+    }
 }
 
 impl Quadrant {
     fn from_comparison(
-        element_position: Point2<SimFloat>,
         node_position: Point2<SimFloat>,
+        element_position: Point2<SimFloat>,
     ) -> Self {
-        if element_position.x < node_position.x {
-            if element_position.y < node_position.y {
-                Self::SW
-            } else {
-                Self::NW
-            }
-        } else {
-            if element_position.y < node_position.y {
-                Self::SE
-            } else {
-                Self::NE
-            }
-        }
+        let cmp_x = u32::from(element_position.x < node_position.x);
+        let cmp_y = u32::from(element_position.y < node_position.y);
+
+        Self::try_from((cmp_x << 0) | (cmp_y << 1)).unwrap()
     }
 
     fn apply_offset(
         &self,
-        point: Point2<SimFloat>,
+        position: Point2<SimFloat>,
         extent: SimFloat,
-        depth: u32,
     ) -> Point2<SimFloat> {
-        let half_extent = 0.5 * extent * SimFloat::from(0.5).powi(depth.try_into().unwrap());
+        let half_extent = 0.5 * extent;
 
         match self {
-            Quadrant::NW => Point2::new(point.x - half_extent, point.y + half_extent),
-            Quadrant::SW => Point2::new(point.x - half_extent, point.y - half_extent),
-            Quadrant::NE => Point2::new(point.x + half_extent, point.y + half_extent),
-            Quadrant::SE => Point2::new(point.x + half_extent, point.y - half_extent),
+            Quadrant::NW => Point2::new(position.x - half_extent, position.y + half_extent),
+            Quadrant::SW => Point2::new(position.x - half_extent, position.y - half_extent),
+            Quadrant::NE => Point2::new(position.x + half_extent, position.y + half_extent),
+            Quadrant::SE => Point2::new(position.x + half_extent, position.y - half_extent),
         }
     }
 }
 
+new_map_key_32! { pub struct NodeKey; "NODE"; }
+new_map_key_32! { pub struct ElementKey; "NODE"; }
+
 #[derive(Debug, Copy, Clone)]
 pub(super) enum QuadtreeChild {
-    Node(NonZeroU32),
-    Element(NonZeroU32),
+    Node(NodeKey),
+    Element(ElementKey),
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -82,30 +107,10 @@ pub struct QuadtreeNode<U>
 where
     U: Default + Debug + Copy + Clone,
 {
-    pub child_index: QuadtreeChild,
-    pub parent_index: NonZeroU32,
+    pub child_key: QuadtreeChild,
+    pub position: Point2<SimFloat>,
+    pub extent: SimFloat,
     pub data: U,
-}
-
-#[derive(Debug)]
-pub(super) struct QuadtreeElement<T>
-where
-    T: Positioned + Debug,
-{
-    pub(super) element: T,
-    leaf_index: Option<NonZeroU32>,
-}
-
-impl<T> QuadtreeElement<T>
-where
-    T: Positioned + Debug,
-{
-    fn new(
-        element: T,
-        leaf_index: Option<NonZeroU32>,
-    ) -> Self {
-        Self { element, leaf_index }
-    }
 }
 
 #[derive(Debug)]
@@ -116,8 +121,8 @@ where
 {
     // the size of the root quadrants
     extent: SimFloat,
-    nodes: Vec<Option<QuadtreeNode<U>>>,
-    elements: Vec<QuadtreeElement<T>>,
+    nodes: PrimaryMap<NodeKey, Option<QuadtreeNode<U>>>,
+    elements: PrimaryMap<ElementKey, T>,
 }
 
 impl<T, U> Quadtree<T, U>
@@ -126,30 +131,21 @@ where
     U: Default + Debug + Copy + Clone,
 {
     pub fn new(extent: SimFloat) -> Self {
-        Self {
+        let mut slf = Self {
             extent,
-            nodes: vec![None],
-            elements: vec![],
-        }
+            nodes: Default::default(),
+            elements: Default::default(),
+        };
+
+        slf.nodes.insert(None);
+        slf
     }
 
     pub fn clear(&mut self) {
-        self.nodes.clear();
-        self.elements.clear();
+        self.nodes = Default::default();
+        self.elements = Default::default();
 
-        self.nodes.push(None);
-    }
-
-    pub fn elements(&self) -> &[QuadtreeElement<T>] {
-        &self.elements
-    }
-
-    pub fn nodes(&self) -> &[Option<QuadtreeNode<U>>] {
-        &self.nodes
-    }
-
-    pub fn nodes_mut(&mut self) -> &mut [Option<QuadtreeNode<U>>] {
-        &mut self.nodes
+        self.nodes.insert(None);
     }
 
     pub fn extent(&self) -> SimFloat {
@@ -164,137 +160,109 @@ where
             panic!("Can't insert element with position {:?} into self with extent {}", element.position(), self.extent);
         }
 
-        let element_index = self.elements.len();
-        self.elements.push(QuadtreeElement::new(element, None));
-        self.insert_at_node(0, 0, Point2::new(0.0, 0.0), 0, element_index)?;
+        // insert new element
+        let element_key = self.elements.insert(element);
 
-        Ok(())
-    }
+        // find existing leaf quadrant the element belongs to
+        let mut leaf_node_key = self.nodes.keys().next().expect("A root must exist");
+        let mut position = Point2::new(0.0, 0.0);
+        let mut extent = self.extent;
 
-    pub fn traverse<F>(
-        &self,
-        func: &mut F,
-    ) -> Result<(), String>
-    where
-        F: FnMut(&QuadtreeNode<U>, Point2<SimFloat>, u32) -> ContinueTraverse,
-    {
-        self.traverse_at_node(func, 0, Point2::new(0.0, 0.0), 0)
-    }
+        while let Some(QuadtreeNode { child_key: QuadtreeChild::Node(children), .. }) = self.nodes[leaf_node_key] {
+            let quadrant = Quadrant::from_comparison(position, self.elements[element_key].position());
+            let child_index = quadrant as usize;
+            leaf_node_key = NodeKey::try_from_index(children.to_index() + child_index).unwrap();
 
-    fn traverse_at_node<F>(
-        &self,
-        func: &mut F,
-        node_index: usize,
-        node_position: Point2<SimFloat>,
-        depth: u32,
-    ) -> Result<(), String>
-    where
-        F: FnMut(&QuadtreeNode<U>, Point2<SimFloat>, u32) -> ContinueTraverse,
-    {
-        if depth > MAX_DEPTH {
-            Err(format!("Maximum stack depth exceeded while traversing over node {:?}", self.nodes[node_index]))?;
+            position = quadrant.apply_offset(position, extent);
+            extent *= 0.5;
         }
 
-        if let Some(node) = &self.nodes[node_index] {
-            match func(node, node_position, depth) {
-                ContinueTraverse::Continue => {}
-                ContinueTraverse::Stop => return Ok(()),
-            };
-
-            if let QuadtreeChild::Node(child_node_index) = node.child_index {
-                let children_index = usize::try_from(child_node_index.get() - 1).unwrap();
-                let half_extent = 0.5 * self.extent * SimFloat::from(0.5).powi(depth.try_into().unwrap());
-
-                let child_positions = [
-                    node_position + Vector2::new(-half_extent, half_extent),
-                    node_position + Vector2::new(-half_extent, -half_extent),
-                    node_position + Vector2::new(half_extent, half_extent),
-                    node_position + Vector2::new(half_extent, -half_extent),
-                ];
-
-                for child_index in 0..4 {
-                    self.traverse_at_node(func, children_index + child_index, child_positions[child_index], depth + 1)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn insert_at_node(
-        &mut self,
-        node_index: usize,
-        parent_index: usize,
-        node_position: Point2<SimFloat>,
-        depth: u32,
-        element_index: usize,
-    ) -> Result<(), String> {
-        if depth > MAX_DEPTH {
-            Err(format!("Maximum stack depth exceeded while inserting {:?}", self.elements[element_index]))?;
-        }
-
-        match self.nodes[node_index].as_ref().copied() {
+        match self.nodes[leaf_node_key] {
             None => {
-                // use empty slot
-                let parent_index = NonZeroU32::try_from(u32::try_from(parent_index + 1).unwrap()).unwrap();
+                // empty leaf => insert directly
                 let new_leaf = QuadtreeNode {
-                    child_index: QuadtreeChild::Element(
-                        NonZeroU32::try_from(u32::try_from(element_index + 1).unwrap()).unwrap(),
-                    ),
-                    parent_index,
+                    child_key: QuadtreeChild::Element(element_key),
+                    position,
+                    extent,
                     data: U::default(),
                 };
-                self.nodes[node_index] = Some(new_leaf);
-
-                let leaf_index = NonZeroU32::try_from(u32::try_from(node_index + 1).unwrap()).unwrap();
-                self.elements[element_index as usize].leaf_index = Some(leaf_index);
+                self.nodes[leaf_node_key] = Some(new_leaf);
             }
-            Some(node) => {
-                match node.child_index {
-                    QuadtreeChild::Node(child_node_index) => {
-                        // find correct quadrant and insert there
-                        let element_pos = self.elements[element_index as usize].element.position();
-                        let children_index = usize::try_from(child_node_index.get() - 1).unwrap();
+            Some(existing) => {
+                // non-empty leaf => split until quadrants are different
+                let QuadtreeChild::Element(existing_element_key) = existing.child_key else {
+                    panic!("We checked for this above");
+                };
 
-                        let quadrant = Quadrant::from_comparison(element_pos, node_position);
+                // convert leaf to empty twig
+                let children_index = self.nodes.next_key();
+                for _ in 0..4 {
+                    self.nodes.insert(None);
+                }
 
-                        let child_index = children_index + quadrant as usize;
-                        let node_position = Quadrant::from_comparison(element_pos, node_position).apply_offset(
-                            node_position,
-                            self.extent,
-                            depth,
-                        );
+                self.nodes[leaf_node_key].as_mut().unwrap().child_key = QuadtreeChild::Node(children_index);
 
-                        self.insert_at_node(child_index, node_index, node_position, depth + 1, element_index)?;
-                    }
-                    QuadtreeChild::Element(child_element_index) => {
-                        // subdivide leaf into twig and reinsert into self
-                        let children_index =
-                            NonZeroU32::try_from(u32::try_from(self.nodes.len() + 1).unwrap()).unwrap();
-                        for _ in 0..4 {
-                            self.nodes.push(None);
-                        }
+                loop {
+                    let q_0 = Quadrant::from_comparison(position, self.elements[existing_element_key].position());
+                    let q_1 = Quadrant::from_comparison(position, self.elements[element_key].position());
 
-                        let updated_node = QuadtreeNode {
-                            child_index: QuadtreeChild::Node(children_index),
-                            ..self.nodes[node_index].expect("We checked this above")
+                    if q_0 == q_1 {
+                        position = q_0.apply_offset(position, extent);
+                        extent *= 0.5;
+
+                        // same quadrants => split further by creating new twig node at the child's position
+                        let QuadtreeChild::Node(children_key) = self.nodes[leaf_node_key].unwrap().child_key else {
+                            panic!("We converted the parent to a twig");
                         };
 
-                        self.nodes[node_index] = Some(updated_node);
+                        let child_key = NodeKey::try_from_index(children_key.to_index() + q_0 as usize).unwrap();
+                        let new_children_key = self.nodes.next_key();
+                        for _ in 0..4 {
+                            self.nodes.insert(None);
+                        }
 
-                        self.insert_at_node(node_index, parent_index, node_position, depth, element_index)?;
-                        self.insert_at_node(
-                            node_index,
-                            parent_index,
-                            node_position,
-                            depth,
-                            usize::try_from(child_element_index.get() - 1).unwrap(),
-                        )?;
+                        self.nodes[child_key] = Some(QuadtreeNode {
+                            child_key: QuadtreeChild::Node(new_children_key), position, extent, data: Default::default(),
+                        });
+
+                        leaf_node_key = child_key;
+                    } else {
+                        // different quadrants => insert elements and finish
+                        let position_0 = q_0.apply_offset(position, extent);
+                        let position_1 = q_1.apply_offset(position, extent);
+                        extent *= 0.5;
+
+                        let QuadtreeChild::Node(children_key) = self.nodes[leaf_node_key].unwrap().child_key else {
+                            panic!("We converted the parent to a twig");
+                        };
+
+                        let child_key_0 = NodeKey::try_from_index(children_key.to_index() + q_0 as usize).unwrap();
+                        let child_key_1 = NodeKey::try_from_index(children_key.to_index() + q_1 as usize).unwrap();
+
+                        self.nodes[child_key_0] = Some(QuadtreeNode {
+                            child_key: QuadtreeChild::Element(existing_element_key),
+                            position: position_0,
+                            extent,
+                            data: Default::default(),
+                        });
+
+                        self.nodes[child_key_1] = Some(QuadtreeNode {
+                            child_key: QuadtreeChild::Element(element_key),
+                            position: position_1,
+                            extent,
+                            data: Default::default(),
+                        });
+
+                        break;
                     }
                 }
             }
         }
 
         Ok(())
+    }
+
+    pub fn nodes(&self) -> &PrimaryMap<NodeKey, Option<QuadtreeNode<U>>> {
+        &self.nodes
     }
 }

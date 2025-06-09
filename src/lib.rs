@@ -1,3 +1,13 @@
+use std::sync::{
+    Arc,
+    Mutex,
+};
+use std::thread::JoinHandle;
+use std::time::{
+    Duration,
+    Instant,
+};
+
 use cgmath::{
     Point2,
     Vector2,
@@ -43,9 +53,12 @@ use winit::window::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use crate::rendering::rgb;
+
 mod pipeline;
 mod rendering;
 mod simulation;
+mod utility;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -58,32 +71,56 @@ pub async fn run() {
         }
     }
 
-    let num_bodies = 1000;
+    let num_bodies = 1000000;
 
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut pipeline = Pipeline::new(&window).await;
-    let mut simulation = Simulation::new(
-        num_bodies,
+    let simulation = Arc::new(Mutex::new(Simulation::new(
         std::iter::repeat_with(|| {
             // let pos_dist = Uniform::new(-0.5, 0.5).unwrap();
             let pos_dist = Normal::new(0.0, 0.5).unwrap();
+            let vel_dist = Normal::new(0.0, 0.0001).unwrap();
 
             let pos_x: f32 = pos_dist.sample(&mut rng());
             let pos_y: f32 = pos_dist.sample(&mut rng());
 
+            let vel_x: f32 = vel_dist.sample(&mut rng());
+            let vel_y: f32 = vel_dist.sample(&mut rng());
+
             Body {
                 position: Point2::new(pos_x, pos_y),
-                velocity: Vector2::zero(),
+                velocity: Vector2::new(vel_x, vel_y),
                 mass: 1.0,
                 radius: 0.005,
-                color: Color::BLUE,
+                color: rgb(0xC4, 0x60, 0x3B),
             }
-        }),
+        })
+        .take(num_bodies),
         0.5,
-    );
+    )));
 
-    simulation.advance(1.0).unwrap();
+    // two threads with the simulation as shared state:
+    // 1. simulation
+    // 2. rendering
+
+    let simulation_thread = {
+        let simulation = simulation.clone();
+
+        std::thread::spawn(move || {
+            let mut previous_time = Instant::now();
+
+            loop {
+                let current_time = Instant::now();
+                let dt = current_time - previous_time;
+                previous_time = current_time;
+
+                simulation.lock().unwrap().advance(dt).unwrap();
+
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        })
+    };
 
     let mut render_state = RenderState::new(&pipeline.device, num_bodies);
 
@@ -118,6 +155,7 @@ pub async fn run() {
                         return;
                     }
 
+                    let simulation = simulation.lock().unwrap();
                     match render_state.render(&mut pipeline, &simulation) {
                         Ok(_) => {}
                         Err(SurfaceError::Lost | SurfaceError::Outdated) => {
@@ -145,6 +183,23 @@ pub async fn run() {
                 WindowEvent::Resized(physical_size) => {
                     pipeline.resize(*physical_size);
                     surface_configured = true;
+                }
+                WindowEvent::KeyboardInput {
+                    event:
+                        KeyEvent {
+                            state: ElementState::Pressed,
+                            physical_key: PhysicalKey::Code(keycode),
+                            ..
+                        },
+                    ..
+                } => {
+                    match keycode {
+                        KeyCode::KeyG => {
+                            // toggle tree drawing
+                            render_state.settings_mut().toggle_draw_tree();
+                        }
+                        _ => {}
+                    }
                 }
                 _ => {}
             },

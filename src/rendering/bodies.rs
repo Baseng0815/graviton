@@ -126,11 +126,11 @@ impl BodyBuffers {
 }
 
 impl RenderState {
-    pub(super) fn render_bodies(
+    pub(super) fn render_bodies<'a>(
         &mut self,
         pipeline: &mut Pipeline,
         render_pass: &mut RenderPass,
-        bodies: &[Body],
+        bodies: impl ExactSizeIterator<Item = &'a Body>,
     ) -> Result<(), SurfaceError> {
         let bufs = &mut self.body_buffers;
 
@@ -141,9 +141,9 @@ impl RenderState {
 
         render_pass.set_pipeline(&pipeline.circle_pipeline);
 
-        for (instance, body) in bufs.instances.iter_mut().zip(bodies.iter()) {
+        for (instance, body) in bufs.instances.iter_mut().zip(bodies) {
             *instance = BodyInstance {
-                position: [body.position().x, body.position().y],
+                position: [body.position.x, body.position.y],
                 color: [
                     body.color().r as f32,
                     body.color().g as f32,
